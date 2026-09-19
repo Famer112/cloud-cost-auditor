@@ -1,0 +1,5 @@
+AWS EC2 Idle Instances: $450.00
+Unused Unattached EBS Volumes: $120.00
+Orphaned Load Balancers: $80.00
+Over-provisioned RDS Databases: $650.00
+Total Estimated Monthly Cost: $1300.00
