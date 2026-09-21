@@ -7,7 +7,7 @@ from openai import OpenAI
 import stripe
 
 # 🔑 PASTE YOUR LIVE STRIPE KEYS HERE
-stripe.api_key = "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"
+stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
 PRICE_ID = "prod_VINFlLkFZjnEuf"
 YOUR_WEBSITE_URL = "https://netlify.app"
 
