@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cloud Cost Auditor | FI Computing Ltd.</title>
+<style>
+  body{margin:0;font-family:system-ui,sans-serif;background:#0b1b3a;color:#e8eefc;display:flex;justify-content:center;padding:24px}
+  .card{width:100%;max-width:760px;background:#12274f;border-radius:12px;padding:28px}
+  h1{margin-top:0} p.sub{color:#9fb3dd}
+  textarea{width:100%;box-sizing:border-box;height:260px;background:#0b1b3a;color:#e8eefc;border:1px solid #2b4785;border-radius:8px;padding:12px;font-family:monospace}
+  button{margin-top:14px;background:#3b82f6;color:#fff;border:0;border-radius:8px;padding:12px 22px;font-size:16px;cursor:pointer}
+  button:disabled{opacity:.5;cursor:not-allowed}
+  .msg{margin-top:14px;color:#ffd479} .warn{font-size:13px;color:#9fb3dd;margin-top:10px}
+  table{width:100%;border-collapse:collapse;margin-top:16px;font-size:14px}
+  td,th{text-align:left;padding:8px;border-bottom:1px solid #2b4785;vertical-align:top}
+  .totals{margin-top:16px;font-size:18px}
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>Cloud Cost Auditor</h1>
+  <p class="sub">Paste your AWS, GCP or Azure bill text. One-time audit fee: CA$149.00.</p>
+  <div id="form">
+    <textarea id="bill" placeholder="Paste your bill line items here..."></textarea>
+    <p class="warn">Please remove account IDs, names and other personal details before pasting. Your bill text is deleted once your audit is generated.</p>
+    <button id="pay">Pay CA$149 &amp; run audit</button>
+  </div>
+  <div class="msg" id="msg"></div>
+  <div id="out"></div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const params = new URLSearchParams(location.search);
+const KEY = "pending_bill";
+
+$("pay").onclick = async () => {
+  const text = $("bill").value.trim();
+  if (!text) { $("msg").textContent = "Please paste your bill text first."; return; }
+  $("pay").disabled = true; $("msg").textContent = "Redirecting to secure checkout...";
+  try {
+    const r = await fetch("/create-checkout-session", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({bill_text: text})
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.detail || "Checkout failed");
+    location.href = d.url;
+  } catch (e) {
+    $("msg").textContent = "Error: " + e.message; $("pay").disabled = false;
+  }
+};
+
+async function poll(sessionId, tries = 0) {
+  $("form").style.display = "none";
+  $("msg").textContent = "Payment received. Confirming and analyzing your bill...";
+  try {
+    const r = await fetch("/result?session_id=" + encodeURIComponent(sessionId));
+    const d = await r.json();
+    if (r.ok && d.status === "ready") return render(d);
+    if (r.ok && d.status === "pending" && tries < 30) return setTimeout(() => poll(sessionId, tries + 1), 2000);
+    if (!r.ok && tries < 5) return setTimeout(() => poll(sessionId, tries + 1), 3000);
+    $("msg").textContent = "Still working. Refresh this page in a minute; you will not be charged again.";
+  } catch (e) {
+    if (tries < 5) setTimeout(() => poll(sessionId, tries + 1), 3000);
+  }
+}
+
+function cell(tr, text) { const td = document.createElement("td"); td.textContent = text; tr.appendChild(td); }
+
+function render(d) {
+  $("msg").textContent = "";
+  const out = $("out"); out.innerHTML = "";
+  const t = document.createElement("div"); t.className = "totals";
+  t.textContent = `Estimated monthly waste: ${d.total_monthly_waste.toFixed(2)} ${d.currency} | 10% success fee basis: ${d.success_fee.toFixed(2)}`;
+  out.appendChild(t);
+  if (!d.findings.length) { const p = document.createElement("p"); p.textContent = "No clear waste was identified in this bill."; out.appendChild(p); }
+  else {
+    const tbl = document.createElement("table");
+    const h = tbl.insertRow(); ["Resource","Issue","Monthly savings","Recommendation"].forEach(x => { const th = document.createElement("th"); th.textContent = x; h.appendChild(th); });
+    d.findings.forEach(f => { const tr = tbl.insertRow(); cell(tr, f.resource); cell(tr, f.issue); cell(tr, f.monthly_savings.toFixed(2)); cell(tr, f.recommendation); });
+    out.appendChild(tbl);
+  }
+  if (d.notes) { const n = document.createElement("p"); n.className = "warn"; n.textContent = d.notes; out.appendChild(n); }
+  const w = document.createElement("p"); w.className = "warn"; w.textContent = "These are AI-generated estimates based only on the text provided. Verify before making changes.";
+  out.appendChild(w);
+}
+
+if (params.get("session_id")) poll(params.get("session_id"));
+else if (params.get("canceled")) $("msg").textContent = "Payment canceled. Your bill text was not saved for analysis.";
+</script>
+</body>
+</html>
