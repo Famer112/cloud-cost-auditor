@@ -1,5 +1,6 @@
 import os
 import json
+import logging
 import sqlite3
 import time
 import uuid
@@ -160,6 +161,7 @@ def result(session_id: str):
     try:
         out = run_audit(row["bill_text"])
     except Exception:
+        logging.exception("AUDIT FAILED")
         raise HTTPException(502, "Analysis failed. Please retry in a moment.")
 
     with db() as c:  # store result and delete the bill text
