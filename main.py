@@ -10,7 +10,7 @@ import stripe
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from openai import OpenAI
+import urllib.request
 
 # ---- Config (all secrets come from environment variables) ----
 stripe.api_key = os.environ["STRIPE_SECRET_KEY"]
@@ -18,12 +18,12 @@ WEBHOOK_SECRET = os.environ["STRIPE_WEBHOOK_SECRET"]
 PRICE_ID = os.environ["STRIPE_PRICE_ID"]            # must start with price_
 BASE_URL = os.environ["PUBLIC_BASE_URL"].rstrip("/")  # e.g. https://audit.yourdomain.com
 DB_PATH = os.environ.get("DB_PATH", "jobs.db")
-MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_KEY = os.environ["GEMINI_API_KEY"]
 EXPECTED_SUBTOTAL_CENTS = 14900
 MAX_CHARS = 60000
 SUCCESS_FEE_RATE = 0.10
 
-client = OpenAI()  # reads OPENAI_API_KEY
 app = FastAPI()
 
 
@@ -114,15 +114,20 @@ If the bill has no identifiable waste, return an empty findings list."""
 
 
 def run_audit(bill_text: str) -> dict:
-    resp = client.chat.completions.create(
-        model=MODEL,
-        response_format={"type": "json_object"},
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": bill_text},
-        ],
+    body = json.dumps({
+        "systemInstruction": {"parts": [{"text": SYSTEM_PROMPT}]},
+        "contents": [{"role": "user", "parts": [{"text": bill_text}]}],
+        "generationConfig": {"responseMimeType": "application/json"},
+    }).encode()
+    req = urllib.request.Request(
+        f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL}:generateContent",
+        data=body,
+        headers={"Content-Type": "application/json", "x-goog-api-key": GEMINI_KEY},
     )
-    data = json.loads(resp.choices[0].message.content)
+    with urllib.request.urlopen(req, timeout=90) as r:
+        resp = json.loads(r.read())
+    raw = "".join(p.get("text", "") for p in resp["candidates"][0]["content"]["parts"])
+    data = json.loads(raw[raw.index("{"): raw.rindex("}") + 1])
     findings = []
     for f in data.get("findings", [])[:50]:
         try:
