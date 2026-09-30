@@ -2,3 +2,4 @@ fastapi
 uvicorn[standard]
 stripe
 pydantic
+psycopg2-binary
