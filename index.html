@@ -92,8 +92,9 @@ function render(d) {
     fu.appendChild(el("p", "After you have made the changes, paste a newer bill. We compare it with your audit and count only savings it supports. You then see the 10% success fee and decide whether to approve it. Nothing is charged until you approve.", "sub"));
     const ta = document.createElement("textarea"); ta.id = "newbill"; ta.placeholder = "Paste your newer bill text here...";
     const btn = el("button", "Verify savings"); btn.id = "verify";
-    fu.append(ta, btn, el("div", undefined, "msg"), el("div"));
-    fu.children[3].id = "fumsg"; fu.children[4].id = "fee";
+    const msgDiv = el("div", undefined, "msg"); msgDiv.id = "fumsg";
+    const feeDiv = el("div"); feeDiv.id = "fee";
+    fu.append(ta, btn, msgDiv, feeDiv);
     out.appendChild(fu);
     btn.onclick = verify;
     renderFee(d.fee_status, d.fee_proposal);
