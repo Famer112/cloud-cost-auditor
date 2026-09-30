@@ -91,9 +91,9 @@ async def stripe_webhook(request: Request):
     if event["type"] == "checkout.session.completed":
         s = event["data"]["object"]
         if (
-            s.get("payment_status") == "paid"
-            and s.get("currency") == "cad"
-            and s.get("amount_subtotal") == EXPECTED_SUBTOTAL_CENTS
+            s["payment_status"] == "paid"
+            and s["currency"] == "cad"
+            and s["amount_subtotal"] == EXPECTED_SUBTOTAL_CENTS
         ):
             with db() as c:
                 c.execute("UPDATE jobs SET paid=1 WHERE session_id=?", (s["id"],))
