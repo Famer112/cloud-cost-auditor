@@ -27,6 +27,8 @@ FEE_RATE = 0.10
 MIN_FEE = float(os.environ.get("MIN_FEE", "5"))       # no charge below this amount
 MIN_DAYS = int(os.environ.get("MIN_DAYS_BEFORE_VERIFY", "0"))  # use 30 in production
 CHARGE_CURRENCIES = {"usd", "cad", "eur", "gbp", "aud"}
+# Set AUTOMATIC_TAX=1 in Render only after Stripe Tax is set up and you are registered
+TAX_KWARGS = {"automatic_tax": {"enabled": True}} if os.environ.get("AUTOMATIC_TAX") == "1" else {}
 
 CONSENT = (
     "By paying, you agree that FI Computing Ltd. may save this card. After you verify "
@@ -187,6 +189,7 @@ def create_checkout_session(req: CheckoutRequest):
             customer_creation="always",
             payment_intent_data={"setup_future_usage": "off_session"},
             custom_text={"submit": {"message": CONSENT}},
+            **TAX_KWARGS,
             client_reference_id=job_id,
             success_url=f"{BASE_URL}/?session_id={{CHECKOUT_SESSION_ID}}",
             cancel_url=f"{BASE_URL}/?canceled=true",
@@ -329,6 +332,11 @@ def approve_fee(req: ApproveRequest):
 @app.get("/health")
 def health():
     return {"ok": True}
+
+
+@app.get("/legal")
+def legal():
+    return FileResponse(Path(__file__).parent / "legal.html")
 
 
 @app.get("/")
