@@ -31,7 +31,7 @@ CHARGE_CURRENCIES = {"usd", "cad", "eur", "gbp", "aud"}
 TAX_KWARGS = {"automatic_tax": {"enabled": True}} if os.environ.get("AUTOMATIC_TAX") == "1" else {}
 
 CONSENT = (
-    "By paying, you agree that FI Computing Ltd. may save this card. After you verify "
+    "By paying, you agree that FI Computing . may save this card. After you verify "
     "your realized monthly savings, a 10% success fee may be charged to this card, "
     "only after you approve the exact amount."
 )
