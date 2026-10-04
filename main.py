@@ -31,8 +31,8 @@ CHARGE_CURRENCIES = {"usd", "cad", "eur", "gbp", "aud"}
 TAX_KWARGS = {"automatic_tax": {"enabled": True}} if os.environ.get("AUTOMATIC_TAX") == "1" else {}
 
 CONSENT = (
-    "By paying, you agree that FI Computing . may save this card. After you verify "
-    "your realized monthly savings, a 10% success fee may be charged to this card, "
+    "By paying, you agree that FI Computing Ltd. may save this card. After you verify "
+    "your realized monthly savings, a 10% success fee (plus applicable tax) may be charged to this card, "
     "only after you approve the exact amount."
 )
 
@@ -67,6 +67,9 @@ q(
         fee_pi TEXT)""",
     fetch=False,
 )
+
+
+q("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS billing_address TEXT", fetch=False)
 
 
 def get_row(session_id):
@@ -226,9 +229,12 @@ async def stripe_webhook(request: Request):
             and s["amount_subtotal"] == EXPECTED_SUBTOTAL_CENTS
         ):
             details = g(s, "customer_details")
-            q("""UPDATE jobs SET paid=TRUE, customer_id=%s, payment_intent=%s, email=%s
-                 WHERE session_id=%s""",
-              (g(s, "customer"), g(s, "payment_intent"), g(details, "email"), s["id"]),
+            addr = g(details, "address")
+            addr_json = json.dumps({k: g(addr, k) for k in
+                ("line1", "city", "state", "postal_code", "country") if g(addr, k)}) if addr else None
+            q("""UPDATE jobs SET paid=TRUE, customer_id=%s, payment_intent=%s, email=%s,
+                 billing_address=%s WHERE session_id=%s""",
+              (g(s, "customer"), g(s, "payment_intent"), g(details, "email"), addr_json, s["id"]),
               fetch=False)
     return {"received": True}
 
@@ -257,6 +263,20 @@ def result(session_id: str):
 
 
 # ---- Success fee: verify, then customer approves, then charge ----
+def fee_tax(row, proposal):
+    if not row["billing_address"]:
+        raise ValueError("no billing address on file")
+    calc = stripe.tax.Calculation.create(
+        currency=proposal["currency"].lower(),
+        line_items=[{"amount": int(round(proposal["fee"] * 100)), "reference": "success_fee"}],
+        customer_details={"address": json.loads(row["billing_address"]), "address_source": "billing"},
+    )
+    return {"calculation_id": calc["id"],
+            "tax": round(calc["tax_amount_exclusive"] / 100, 2),
+            "total_cents": calc["amount_total"],
+            "total": round(calc["amount_total"] / 100, 2)}
+
+
 class VerifyRequest(BaseModel):
     session_id: str
     new_bill_text: str
@@ -282,6 +302,12 @@ def verify_savings(req: VerifyRequest):
         logging.exception("VERIFY FAILED")
         raise HTTPException(502, "Verification failed. Please retry in a moment.")
 
+    if proposal["chargeable"] and TAX_KWARGS:
+        try:
+            proposal.update(fee_tax(row, proposal))
+        except Exception:
+            logging.exception("TAX CALC FAILED")
+            raise HTTPException(502, "Could not calculate tax on your fee. Please contact support.")
     status = "proposed" if proposal["chargeable"] else "none"
     q("UPDATE jobs SET fee_proposal=%s, fee_status=%s WHERE session_id=%s",
       (json.dumps(proposal), status, req.session_id), fetch=False)
@@ -308,7 +334,7 @@ def approve_fee(req: ApproveRequest):
         if row["email"]:
             kwargs["receipt_email"] = row["email"]
         charge = stripe.PaymentIntent.create(
-            amount=int(round(prop["fee"] * 100)),
+            amount=prop.get("total_cents") or int(round(prop["fee"] * 100)),
             currency=prop["currency"].lower(),
             customer=row["customer_id"],
             payment_method=original["payment_method"],
@@ -319,6 +345,12 @@ def approve_fee(req: ApproveRequest):
             **kwargs,
         )
         ok, pi_id = charge["status"] == "succeeded", charge["id"]
+        if ok and prop.get("calculation_id"):
+            try:  # record the tax transaction so Stripe Tax can report it
+                stripe.tax.Transaction.create_from_calculation(
+                    calculation=prop["calculation_id"], reference=f"fee-{row['job_id']}")
+            except Exception:
+                logging.exception("TAX TRANSACTION FAILED")
     except Exception:
         logging.exception("FEE CHARGE FAILED")
 
