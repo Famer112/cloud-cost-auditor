@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Cloud Cost Auditor | FI Computing .</title>
+<title>Cloud Cost Auditor | FI Computing Ltd.</title>
 <style>
   body{margin:0;font-family:system-ui,sans-serif;background:#0b1b3a;color:#e8eefc;display:flex;justify-content:center;padding:24px}
   .card{width:100%;max-width:780px;background:#12274f;border-radius:12px;padding:28px}
@@ -22,17 +22,17 @@
 <body>
 <div class="card">
   <h1>Cloud Cost Auditor</h1>
-  <p class="sub">Paste your AWS, GCP or Azure bill text. One-time audit fee: CA$149.00, plus a 10% success fee on savings you verify.</p>
+  <p class="sub">Paste your AWS, GCP or Azure bill text. One-time audit fee: CA$149.00 plus applicable taxes, plus a 10% success fee on savings you verify.</p>
   <div id="form">
     <textarea id="bill" placeholder="Paste your bill line items here..."></textarea>
     <p class="warn">Remove account IDs, names and other personal details before pasting. Your bill text is deleted once your audit is generated.</p>
     <label class="agree"><input type="checkbox" id="agree">
-      <span>I agree that FI Computing . may save my card. After I verify my realized monthly savings, a 10% success fee may be charged, only after I approve the exact amount.</span></label>
+      <span>I agree that FI Computing Ltd. may save my card. After I verify my realized monthly savings, a 10% success fee (plus applicable tax) may be charged, only after I approve the exact amount.</span></label>
     <button id="pay">Pay CA$149 &amp; run audit</button>
   </div>
   <div class="msg" id="msg"></div>
   <div id="out"></div>
-  <p class="warn"><a href="/legal#terms" style="color:#8fb4ff">Terms</a> &middot; <a href="/legal#refund" style="color:#8fb4ff">Refund policy</a> &middot; <a href="/legal#privacy" style="color:#8fb4ff">Privacy</a> &middot; FI Computing .</p>
+  <p class="warn"><a href="/legal#terms" style="color:#8fb4ff">Terms</a> &middot; <a href="/legal#refund" style="color:#8fb4ff">Refund policy</a> &middot; <a href="/legal#privacy" style="color:#8fb4ff">Privacy</a> &middot; FI Computing Ltd.</p>
 </div>
 
 <script>
@@ -124,10 +124,12 @@ function renderFee(status, p) {
   box.appendChild(t);
   if (p.notes) box.appendChild(el("p", p.notes, "warn"));
 
-  if (status === "charged") { box.appendChild(el("p", `Your success fee of ${p.fee.toFixed(2)} ${cur} has been charged. Thank you!`, "totals")); return; }
+  const total = p.total !== undefined ? p.total : p.fee;
+  const detail = p.tax !== undefined ? ` (fee ${p.fee.toFixed(2)} + tax ${p.tax.toFixed(2)})` : "";
+  if (status === "charged") { box.appendChild(el("p", `Your success fee of ${total.toFixed(2)} ${cur}${detail} has been charged. Thank you!`, "totals")); return; }
   if (status === "proposed") {
-    box.appendChild(el("p", `Success fee (10%): ${p.fee.toFixed(2)} ${cur}`, "totals"));
-    const b = el("button", `Approve and charge ${p.fee.toFixed(2)} ${cur} to my saved card`);
+    box.appendChild(el("p", `Success fee (10%): ${total.toFixed(2)} ${cur}${detail}`, "totals"));
+    const b = el("button", `Approve and charge ${total.toFixed(2)} ${cur} to my saved card`);
     b.onclick = async () => {
       b.disabled = true; $("fumsg").textContent = "Charging...";
       try { await post("/approve-fee", {session_id: sid}); $("fumsg").textContent = ""; renderFee("charged", p); }
