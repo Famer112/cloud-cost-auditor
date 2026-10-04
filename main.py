@@ -189,6 +189,7 @@ def create_checkout_session(req: CheckoutRequest):
         session = stripe.checkout.Session.create(
             line_items=[{"price": PRICE_ID, "quantity": 1}],
             mode="payment",
+            payment_method_types=["card"],
             customer_creation="always",
             payment_intent_data={"setup_future_usage": "off_session"},
             custom_text={"submit": {"message": CONSENT}},
