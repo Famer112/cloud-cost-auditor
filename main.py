@@ -1,4 +1,5 @@
 import os
+import hashlib
 import json
 import logging
 import uuid
@@ -26,12 +27,15 @@ MAX_CHARS = 60000
 FEE_RATE = 0.10
 MIN_FEE = float(os.environ.get("MIN_FEE", "5"))       # no charge below this amount
 MIN_DAYS = int(os.environ.get("MIN_DAYS_BEFORE_VERIFY", "0"))  # use 30 in production
+PREVIEW_PER_IP_PER_DAY = int(os.environ.get("PREVIEW_PER_IP_PER_DAY", "3"))
+PREVIEW_DAILY_CAP = int(os.environ.get("PREVIEW_DAILY_CAP", "200"))
+PREVIEW_MAX_CHARS = 15000
 CHARGE_CURRENCIES = {"usd", "cad", "eur", "gbp", "aud"}
 # Set AUTOMATIC_TAX=1 in Render only after Stripe Tax is set up and you are registered
 TAX_KWARGS = {"automatic_tax": {"enabled": True}} if os.environ.get("AUTOMATIC_TAX") == "1" else {}
 
 CONSENT = (
-    "By paying, you agree that FI Computing Ltd. may save this card. After you verify "
+    "By paying, you agree that FI Computing may save this card. After you verify "
     "your realized monthly savings, a 10% success fee may be charged to this card, "
     "only after you approve the exact amount."
 )
@@ -70,6 +74,7 @@ q(
 
 
 q("ALTER TABLE jobs ADD COLUMN IF NOT EXISTS billing_address TEXT", fetch=False)
+q("CREATE TABLE IF NOT EXISTS previews(ip_hash TEXT, ts TIMESTAMPTZ DEFAULT now())", fetch=False)
 
 
 def get_row(session_id):
@@ -360,6 +365,47 @@ def approve_fee(req: ApproveRequest):
     if not ok:
         raise HTTPException(502, "Your saved card could not be charged. Please contact support.")
     return {"fee_status": "charged"}
+
+
+class PreviewRequest(BaseModel):
+    bill_text: str
+
+
+@app.post("/preview")
+def preview(req: PreviewRequest, request: Request):
+    """Free, limited preview. Nothing from the bill is stored."""
+    text = req.bill_text.strip()
+    if not text:
+        raise HTTPException(400, "Bill text is empty.")
+    if len(text) > PREVIEW_MAX_CHARS:
+        raise HTTPException(413, f"Preview is limited to {PREVIEW_MAX_CHARS} characters.")
+
+    fwd = request.headers.get("x-forwarded-for", "")
+    ip = fwd.split(",")[0].strip() if fwd else (request.client.host if request.client else "unknown")
+    h = hashlib.sha256(ip.encode()).hexdigest()
+    q("DELETE FROM previews WHERE ts < now() - interval '7 days'", fetch=False)
+    n_ip = q("SELECT count(*) AS n FROM previews WHERE ip_hash=%s AND ts > now() - interval '1 day'",
+             (h,), one=True)["n"]
+    n_all = q("SELECT count(*) AS n FROM previews WHERE ts > now() - interval '1 day'", one=True)["n"]
+    if n_ip >= PREVIEW_PER_IP_PER_DAY:
+        raise HTTPException(429, "Free preview limit reached for today. Try again tomorrow, or get the full audit.")
+    if n_all >= PREVIEW_DAILY_CAP:
+        raise HTTPException(429, "Free previews are used up for today. Please try again tomorrow.")
+    q("INSERT INTO previews(ip_hash) VALUES(%s)", (h,), fetch=False)
+
+    try:
+        out = run_audit(text)
+    except Exception:
+        logging.exception("PREVIEW FAILED")
+        raise HTTPException(502, "Preview failed. Please retry in a moment.")
+    f = out["findings"]
+    top = max(f, key=lambda x: x["monthly_savings"]) if f else None
+    return {
+        "found": bool(f), "count": len(f), "total": out["total_monthly_waste"],
+        "currency": out["currency"],
+        "top": {"resource": top["resource"], "issue": top["issue"],
+                "monthly_savings": top["monthly_savings"]} if top else None,
+    }
 
 
 @app.get("/health")
